@@ -1,58 +1,33 @@
-# MarketDataSystem – Real-Time Market Data Processing Platform (Ultra-Documented Edition)
+# MarketDataSystem – Real-Time Market Data Processing Platform
 
-> **Goal**: Demonstrate senior-level skills in **system design, high-throughput processing, concurrency, observability, and clean architecture** using .NET.
+> **Goal:** Demonstrate senior-level skills in **system design, high-throughput processing, concurrency, observability, and clean architecture** using .NET.
 
-This repository implements a **real-time market data processing engine** that:
+This repository implements a **real-time market data engine** that:
 
-- Consumes **high-frequency price updates** (ticks) for multiple symbols,
-- Maintains **per-symbol moving averages**,
-- Detects **price anomalies (>2% within any 1-second interval)**,
-- Exposes state and metrics via a **clear HTTP API**,
-- Includes a built-in **simulation feed** for demos and load testing,
-- Is supported by an extensive `docs/` folder for architecture, design, testing, and security.
-
----
-
-## 0. Table of Contents
-
-1. [System Overview](#1-system-overview)
-2. [Architecture](#2-architecture)
-   - [2.1 High-Level View](#21-high-level-view)
-   - [2.2 Layered Design](#22-layered-design)
-   - [2.3 Component Responsibilities](#23-component-responsibilities)
-3. [Data & Control Flows](#3-data--control-flows)
-   - [3.1 Write Path (POST /api/prices)](#31-write-path-post-apiprices)
-   - [3.2 Read Path (GET /api/prices / anomalies)](#32-read-path-get-apiprices--anomalies)
-   - [3.3 Internal Processing Flow](#33-internal-processing-flow)
-4. [Concurrency & Performance Model](#4-concurrency--performance-model)
-5. [Simulation Feed](#5-simulation-feed)
-6. [HTTP API Summary](#6-http-api-summary)
-7. [Configuration](#7-configuration)
-8. [Running the System](#8-running-the-system)
-9. [Code Structure & Navigation](#9-code-structure--navigation)
-10. [Testing & Quality](#10-testing--quality)
-11. [Security & Operations](#11-security--operations)
-12. [Using This Project in an Interview](#12-using-this-project-in-an-interview)
-13. [Docs Overview](#13-docs-overview)
-14. [License](#14-license)
+- Consumes **high-frequency price updates** (ticks) for multiple symbols.
+- Maintains **per-symbol moving averages** over the last _N_ prices.
+- Detects **price anomalies** (spikes greater than a configurable percent within a 1‑second window).
+- Exposes current state and metrics over a **clean HTTP API**.
+- Includes a configurable **simulation feed** so you can demo and load-test the pipeline without any external dependency.
+- Is backed by a very detailed `docs/` folder (architecture, design decisions, performance, testing, security, code review, and more).
 
 ---
 
 ## 1. System Overview
 
-The MarketDataSystem is meant to be a **realistic but compact** example of a streaming, real-time system:
+The MarketDataSystem is deliberately built as a **small but realistic** streaming backend:
 
-- It behaves similarly to a **market data microservice** in finance (but simplified),
-- It highlights trade-offs around **latency, throughput, and data structures**,
-- It is structured to be **easy to reason about** and **easy to explain**.
+- Similar in spirit to a **market data / telemetry microservice**.
+- Optimized for **throughput, correctness, and clarity**.
+- Structured for **easy reasoning and explanation in interviews**.
 
-**Key requirements covered:**
+**Key requirements satisfied:**
 
-- Simulate a **market data feed** with random price updates for multiple symbols.
-- Maintain a **moving average of the latest N price updates** per symbol.
-- Detect **price spikes greater than 2%** within any **1-second window**.
-- Process **10,000+ price updates per second** (throughput target).
-- Use **concurrent programming** (channels, tasks, async/await) safely.
+- ✅ Simulate market data feed with random price updates for multiple symbols.  
+- ✅ Maintain a moving average of the **latest N updates per symbol**.  
+- ✅ Detect **> 2% spikes** within any **1‑second interval** (configurable).  
+- ✅ Sustain **10,000+ updates/second** on a single node (design target).  
+- ✅ Use **concurrent patterns** (channels, tasks, async/await) safely.
 
 ---
 
@@ -62,62 +37,62 @@ The MarketDataSystem is meant to be a **realistic but compact** example of a str
 
 ```mermaid
 flowchart LR
+    %% Clients
     subgraph Clients
-        UI[Web UI / Dashboard]
-        Trader[Trading App]
-        Load[Load Generator]
+        UI["Web UI / Dashboard"]
+        Trader["Trading App"]
+        LoadGen["Load Generator / Benchmark"]
     end
 
-    subgraph API[MarketData.API
-(ASP.NET Core)]
-        Ctrl[Controllers]
-        Swagger[(Swagger UI)]
+    %% API
+    subgraph API
+        APINode["MarketData.API (ASP.NET Core)"]
+        Ctrl["Controllers"]
+        Swagger["Swagger / OpenAPI"]
     end
 
-    subgraph APP[Application Layer]
-        Cmd[Commands
-(ProcessPriceUpdate)]
-        Qry[Queries
-(GetSymbolStatistics,
-GetAllStatistics,
-GetRecentAnomalies)]
-        Medi[MediatR]
-        Intf[Interfaces
-IMarketDataProcessor,
-IStatisticsRepository,
-IAnomalyRepository]
+    %% Application
+    subgraph Application
+        Cmds["Commands (ProcessPriceUpdate, ...)"]
+        Qrys["Queries (GetSymbolStatistics, GetAllStatistics, GetRecentAnomalies)"]
+        Medi["MediatR"]
+        Intf["Interfaces (IMarketDataProcessor, IStatisticsRepository, IAnomalyRepository)"]
     end
 
-    subgraph INF[Infrastructure Layer]
-        Proc[HighPerformanceMarketDataProcessorService]
-        StatsRepo[InMemoryStatisticsRepository]
-        AnomRepo[InMemoryAnomalyRepository]
-        Sim[SimulatedMarketDataFeedHostedService]
-        Opts[MarketDataProcessingOptions]
-        Analyt[Analytics
-(MovingAverageBuffer,
-SlidingWindow)]
+    %% Infrastructure
+    subgraph Infrastructure
+        Proc["HighPerformanceMarketDataProcessorService"]
+        StatsRepo["InMemoryStatisticsRepository"]
+        AnomRepo["InMemoryAnomalyRepository"]
+        Sim["SimulatedMarketDataFeedHostedService"]
+        Opts["MarketDataProcessingOptions"]
+        Analytics["Analytics (MovingAverageBuffer, SlidingWindow)"]
     end
 
-    subgraph DOM[Domain Layer]
-        PU[PriceUpdate]
-        SS[SymbolStatistics]
-        PA[PriceAnomaly]
+    %% Domain
+    subgraph Domain
+        PU["PriceUpdate"]
+        SS["SymbolStatistics"]
+        PA["PriceAnomaly"]
     end
 
-    Clients -->|HTTP| Ctrl
+    UI --> Ctrl
+    Trader --> Ctrl
+    LoadGen --> Ctrl
+
     Ctrl --> Medi
-    Medi --> Cmd
-    Medi --> Qry
+    Medi --> Cmds
+    Medi --> Qrys
 
-    Cmd --> Intf --> Proc
-    Qry --> Intf --> StatsRepo
+    Cmds --> Intf --> Proc
+    Qrys --> Intf --> StatsRepo
 
-    Proc --> Analyt
+    Proc --> Analytics
     Proc --> SS
-    Proc --> AnomRepo --> PA
-
+    Proc --> AnomRepo
     StatsRepo --> SS
+    AnomRepo --> PA
+
     Sim --> Proc
     Opts --> Proc
     Opts --> Sim
@@ -125,43 +100,38 @@ SlidingWindow)]
 
 ### 2.2 Layered Design
 
-**Projects:**
-
-- `MarketData.API` – HTTP endpoints, DI configuration, health checks.
-- `MarketData.Application` – Commands, queries, DTOs, interfaces.
-- `MarketData.Domain` – Core business entities (prices, stats, anomalies).
-- `MarketData.Infrastructure` – Processor engine, repositories, simulation, analytics.
-
 ```mermaid
-graph TD
-    API[MarketData.API] --> APP[MarketData.Application]
-    APP --> DOM[MarketData.Domain]
-    APP --> INF[MarketData.Infrastructure]
-    INF --> DOM
+flowchart TD
+    APIProj["MarketData.API"] --> AppProj["MarketData.Application"]
+    AppProj --> DomainProj["MarketData.Domain"]
+    AppProj --> InfraProj["MarketData.Infrastructure"]
+    InfraProj --> DomainProj
 ```
 
-All dependencies point **inward** (Clean Architecture style).  
-Infrastructure knows about Domain and Application; the API knows about Application; Domain is pure.
+- **API** depends on **Application**.
+- **Application** depends on **Domain** (and defines interfaces).  
+- **Infrastructure** depends on **Application** and **Domain** (and provides implementations).  
+- **Domain** is pure and does not depend on any other project.
 
 ### 2.3 Component Responsibilities
 
-| Component                               | Responsibility                                                 |
-|-----------------------------------------|-----------------------------------------------------------------|
-| `HighPerformanceMarketDataProcessorService` | Real-time ingestion and processing of price updates.            |
-| `SimulatedMarketDataFeedHostedService` | Generate random-walk prices for multiple symbols.               |
-| `MovingAverageBuffer`                  | O(1) moving average over last N prices.                        |
-| `SlidingWindow` + `MonotonicDeque`     | O(1) amortized min/max over 1-second window.                    |
-| `SymbolStatistics`                     | Aggregated state per symbol (current, MA, count, min, max).     |
-| `PriceAnomaly`                         | Represents a detected spike (> threshold within time window).   |
-| `InMemoryStatisticsRepository`         | Read model for current symbol statistics.                       |
-| `InMemoryAnomalyRepository`            | Stores recent anomalies in a bounded queue.                     |
-| Application Commands/Queries           | Orchestrate actions and expose DTOs to API.                     |
+| Component                                 | Role / Responsibility                                                       |
+|-------------------------------------------|-----------------------------------------------------------------------------|
+| `HighPerformanceMarketDataProcessorService` | Real-time ingestion & processing core (partitioned workers, channels).      |
+| `SimulatedMarketDataFeedHostedService`   | Generates random-walk prices for configured symbols.                        |
+| `MovingAverageBuffer`                    | O(1) moving average over last N prices (ring buffer + running sum).        |
+| `SlidingWindow`                           | O(1) amortized min/max over a 1‑second window (monotonic deques).          |
+| `SymbolStatistics`                       | Aggregated state per symbol (current price, MA, min, max, count, lastTime).|
+| `PriceAnomaly`                           | Represents a detected spike (> threshold within window).                    |
+| `InMemoryStatisticsRepository`           | Adapts processor state to query DTOs.                                       |
+| `InMemoryAnomalyRepository`              | Keeps a bounded, in-memory list of recent anomalies.                        |
+| Commands & Queries (Application)         | Orchestrate use-cases and input/output DTO mapping.                         |
 
 ---
 
 ## 3. Data & Control Flows
 
-### 3.1 Write Path (POST /api/prices)
+### 3.1 Write Path (POST `/api/prices`)
 
 **Goal:** Accept a new price tick and feed it into the processing pipeline.
 
@@ -172,34 +142,33 @@ sequenceDiagram
     participant API as PricesController
     participant Med as MediatR
     participant CmdH as ProcessPriceUpdateHandler
-    participant Proc as HighPerformanceMarketDataProcessorService
-    participant Worker as Partition Worker
+    participant Proc as Processor
+    participant Worker as PartitionWorker
 
     Client->>API: POST /api/prices (symbol, price, timestamp)
     API->>Med: Send(ProcessPriceUpdateCommand)
     Med->>CmdH: Handle(command)
     CmdH->>Proc: EnqueueUpdateAsync(PriceUpdate)
-    Proc->>Worker: Route to partition Channel<PriceUpdate>
-    Worker->>Worker: Dequeue update
+    Proc->>Worker: Route to partition via Channel&lt;PriceUpdate&gt;
+    Worker->>Worker: Dequeue update from channel
     Worker->>Worker: Update MovingAverageBuffer
     Worker->>Worker: Update SlidingWindow
-    Worker->>Worker: Detect anomaly?
+    Worker->>Worker: Detect anomaly (if any)
     Worker->>Worker: Update SymbolStatistics
 ```
 
-### 3.2 Read Path (GET /api/prices / anomalies)
-
-**Goal:** Read current symbol statistics or anomalies.
+### 3.2 Read Path (GET `/api/prices/{symbol}` / `/api/anomalies`)
 
 ```mermaid
 sequenceDiagram
     autonumber
     participant Client
-    participant API as PricesController
+    participant API as API Controllers
     participant Med as MediatR
-    participant QryH as Query Handler
-    participant StatsRepo as InMemoryStatisticsRepository
+    participant QryH as QueryHandler
+    participant StatsRepo as StatisticsRepository
     participant Proc as Processor
+    participant AnomRepo as AnomalyRepository
 
     Client->>API: GET /api/prices/{symbol}
     API->>Med: Send(GetSymbolStatisticsQuery)
@@ -208,26 +177,23 @@ sequenceDiagram
     StatsRepo->>Proc: TryGetSymbolStatistics(symbol)
     Proc-->>StatsRepo: SymbolStatistics snapshot
     StatsRepo-->>QryH: SymbolStatistics
-    QryH-->>Med: SymbolStatisticsDto
+    QryH-->>Med: DTO
     Med-->>API: DTO
     API-->>Client: 200 OK
+
+    Note over Client,API: Similarly, GET /api/anomalies goes through GetRecentAnomaliesQuery and IAnomalyRepository.
 ```
 
-Anomaly read flow is similar, but goes through `GetRecentAnomaliesQuery` and `IAnomalyRepository`.
-
-### 3.3 Internal Processing Flow
-
-Within each worker:
+### 3.3 Internal Processing Flow (Within a Worker)
 
 ```mermaid
-graph TD
-    W[Worker Loop] --> DQ[Dequeue PriceUpdate]
-    DQ --> MA[Update MovingAverageBuffer]
-    MA --> SW[Update SlidingWindow]
-    SW --> DET[Anomaly Detection]
-    DET -->|Spike? Yes| ANO[Write PriceAnomaly to IAnomalyRepository]
-    DET -->|No| STATS
-    ANO --> STATS[Update SymbolStatistics]
+flowchart TD
+    Start["Dequeue PriceUpdate from Channel"] --> MA["Update MovingAverageBuffer<br/>(O(1))"]
+    MA --> SW["Update SlidingWindow (1s)<br/>(O(1) amortized)"]
+    SW --> Check["Compute min/max in window<br/>Compare % change vs threshold"]
+    Check -->|No spike| Stats["Update SymbolStatistics"]
+    Check -->|Spike detected| Anom["Create PriceAnomaly<br/>Persist via IAnomalyRepository"]
+    Anom --> Stats
 ```
 
 ---
@@ -238,48 +204,44 @@ graph TD
 
 ```mermaid
 flowchart TB
-    subgraph Processor[Processor]
-        R[Router: hash(symbol) % N]
+    subgraph Processor["HighPerformanceMarketDataProcessorService"]
+        Router["Router (hash(symbol) mod N)"]
         subgraph Partitions
             direction LR
-            P0[Partition 0
-Channel + Worker]
-            P1[Partition 1
-Channel + Worker]
-            P2[Partition 2
-Channel + Worker]
-            P3[Partition 3
-Channel + Worker]
+            P0["Partition 0<br/>Channel + Worker"]
+            P1["Partition 1<br/>Channel + Worker"]
+            P2["Partition 2<br/>Channel + Worker"]
+            P3["Partition 3<br/>Channel + Worker"]
         end
     end
 
-    Updates[[Incoming Price Updates]] --> R
-    R --> P0
-    R --> P1
-    R --> P2
-    R --> P3
+    Incoming["Incoming Price Updates"] --> Router
+    Router --> P0
+    Router --> P1
+    Router --> P2
+    Router --> P3
 ```
 
-- Each partition:
-  - Has a **bounded** channel with `DropOldest` full mode:
-    - Prevents unbounded memory usage.
-    - Favors newest data (newest ticks are usually more relevant).
-  - Has a **single worker** consuming the channel:
-    - Single-writer per `SymbolState` ⇒ no heavy locking.
+- Each partition has:
+  - A **bounded** channel (`ChannelCapacity` per partition).
+  - A single worker task.
+  - A `ConcurrentDictionary<string, SymbolState>` containing the symbols owned by that partition.
 
-### 4.2 Big-O Complexity
+- **Routing rule**:
+  - `partitionId = hash(symbol) mod partitionCount`
+  - Ensures that each symbol always maps to the **same worker**, enabling a single-writer pattern per symbol.
+
+### 4.2 Complexity & Cost per Tick
 
 | Component              | Operation                       | Complexity | Notes                          |
 |------------------------|----------------------------------|-----------:|--------------------------------|
 | `MovingAverageBuffer`  | Add new price + compute average |    O(1)    | Ring buffer + running sum      |
 | `SlidingWindow`        | Add sample + evict old          | ~ O(1)     | Monotonic deque (amortized)    |
-| `SlidingWindow`        | Query min/max                   |    O(1)    | Just peek head of deques       |
-| `SymbolStatistics`     | Update                          |    O(1)    | Simple arithmetic              |
-| Partition routing      | Symbol → partition              |    O(1)    | Hash modulus                   |
+| `SlidingWindow`        | Query min/max                   |    O(1)    | Peek head of deques            |
+| `SymbolStatistics`     | Update with new tick            |    O(1)    | Simple arithmetic              |
+| Partition routing      | Symbol → partition              |    O(1)    | Hash + modulus                 |
 
-The system is deliberately built so **every tick** incurs constant work.
-
-### 4.3 Tick Processing Timeline
+### 4.3 Conceptual Tick Timeline
 
 ```mermaid
 gantt
@@ -287,28 +249,28 @@ gantt
     title Single Tick Processing Timeline (Conceptual)
 
     section API Layer
-    HTTP Receive + Model Binding :done, 0, 5
-    Validation                   :done, 5, 8
-    MediatR Dispatch             :done, 8, 10
+    HTTP Receive + Binding       :done, 0, 5
+    Validation                   :done, 5, 9
+    MediatR Dispatch             :done, 9, 12
 
     section Producer
-    Enqueue to Channel           :done, 10, 14
+    Enqueue into Channel         :done, 12, 16
 
     section Worker
-    Dequeue                      :done, 14, 18
-    MovingAverage Update         :done, 18, 20
-    SlidingWindow Update         :done, 20, 23
-    Anomaly Check                :done, 23, 27
-    Update SymbolStatistics      :done, 27, 31
+    Dequeue from Channel         :done, 16, 20
+    MovingAverage Update         :done, 20, 23
+    SlidingWindow Update         :done, 23, 26
+    Anomaly Check                :done, 26, 31
+    Update SymbolStatistics      :done, 31, 36
 ```
 
-(These numbers are example only; the important part is **relative order** and **constant cost**.)
+(These times are illustrative; the focus is on **ordering and constant cost**, not exact milliseconds.)
 
 ---
 
 ## 5. Simulation Feed
 
-To make the system **self-contained** and demo-able, we add:
+To make the system **self-contained** and easy to demo, we include:
 
 - `SimulatedMarketDataFeedHostedService` – a background service that generates a **random-walk** price series.
 
@@ -316,12 +278,11 @@ To make the system **self-contained** and demo-able, we add:
 
 ```mermaid
 flowchart LR
-    CFG[appsettings.json
-(MarketDataProcessing.Simulation)] --> OPTS[Options Binding]
-    OPTS --> Sim[SimulatedMarketDataFeedHostedService]
-    Sim --> Proc[IMarketDataProcessor]
-    Proc --> Partitions[Partitioned Workers]
-    Partitions --> Stats[Updated Symbol Statistics]
+    CFG["appsettings.json<br/>(MarketDataProcessing.Simulation)"] --> Opts["MarketDataProcessingOptions.Simulation"]
+    Opts --> SimSvc["SimulatedMarketDataFeedHostedService"]
+    SimSvc --> Proc["IMarketDataProcessor"]
+    Proc --> Parts["Partitioned Workers"]
+    Parts --> Stats["Updated Symbol Statistics"]
 ```
 
 ### 5.2 Simulation Model
@@ -329,12 +290,12 @@ flowchart LR
 For each symbol:
 
 1. Start at `InitialPrice`.
-2. On each tick:
-   - Compute random jitter in range `[-MaxJitterPercent, +MaxJitterPercent]`.
-   - New price = `currentPrice * (1 + jitter)`.
-3. Emit `PriceUpdate(symbol, newPrice, timestamp)` to the processor.
+2. On each iteration:
+   - Compute a random jitter in range `[-MaxJitterPercent, +MaxJitterPercent]`.
+   - New price = `currentPrice * (1 + jitter)`.  
+3. Emit `PriceUpdate(symbol, newPrice, timestamp)` via `IMarketDataProcessor.EnqueueUpdateAsync`.
 
-Configuration:
+Configuration snippet:
 
 ```json
 "MarketDataProcessing": {
@@ -348,36 +309,35 @@ Configuration:
 }
 ```
 
+- Set `"Enabled": false` to disable simulation in production.
+
 ---
 
 ## 6. HTTP API Summary
 
-For full details and examples, see `docs/API.md`. Quick overview:
+For full details and request/response examples, see `docs/API.md`.  
+Quick overview:
 
-| Method | Path                      | Description                                      |
+| Method | Path                      | Purpose                                          |
 |--------|---------------------------|--------------------------------------------------|
 | POST   | `/api/prices`             | Enqueue a new price update.                     |
-| GET    | `/api/prices/{symbol}`    | Read stats for one symbol.                      |
-| GET    | `/api/prices`             | Read stats for all symbols.                     |
-| GET    | `/api/anomalies`          | Read recent anomalies (optional filter by symbol). |
-| GET    | `/api/metrics`            | See processing counters and internal metrics.   |
-| GET    | `/health`                 | Simple health probe (liveness).                 |
+| GET    | `/api/prices/{symbol}`    | Get statistics for a single symbol.             |
+| GET    | `/api/prices`             | Get statistics for all tracked symbols.         |
+| GET    | `/api/anomalies`          | Get recent anomalies (filterable by symbol).    |
+| GET    | `/api/metrics`            | Get internal processing counters / metrics.     |
+| GET    | `/health`                 | Health check (liveness).                        |
+
+Error-handling is aligned with standard ASP.NET Core behavior:
+
+- 400 – validation or model binding errors.
+- 404 – symbol not found (for some queries).
+- 500 – unhandled internal errors.
 
 ---
 
 ## 7. Configuration
 
-The core options live under `MarketDataProcessing`:
-
-- `Partitions`
-- `ChannelCapacity`
-- `MovingAverageWindow`
-- `AnomalyThresholdPercent`
-- `SlidingWindowMilliseconds`
-- `RecentAnomaliesCapacity`
-- `Simulation` (nested object)
-
-Example snippet:
+Key options (bound via `MarketDataProcessingOptions`):
 
 ```json
 "MarketDataProcessing": {
@@ -397,11 +357,12 @@ Example snippet:
 }
 ```
 
-**Notes:**
+Notes:
 
-- `Partitions = 0` → default to `Environment.ProcessorCount`.
-- `ChannelCapacity` is per partition.
-- `AnomalyThresholdPercent` is configurable (e.g., 2.0 for 2%).
+- `Partitions = 0` → defaults to `Environment.ProcessorCount`.
+- `ChannelCapacity` is **per partition**.
+- `AnomalyThresholdPercent` controls sensitivity (e.g., 2.0 = ±2%).
+- `SlidingWindowMilliseconds` is usually `1000` for a 1‑second window.
 
 ---
 
@@ -417,13 +378,13 @@ dotnet run
 
 Then:
 
-- Hit `GET /health` to confirm it is up.
-- Use `POST /api/prices` to inject custom data.
-- Or rely on the simulation feed (if enabled).
+- Check `GET /health` for liveness.
+- Use Swagger UI (if enabled) to explore endpoints.
+- Or use curl/Postman for manual requests.
 
 ### 8.2 Docker (Example)
 
-If a Dockerfile is present (or added):
+If a Dockerfile is present:
 
 ```bash
 docker build -t market-data-api .
@@ -436,136 +397,129 @@ docker run -p 8080:8080 market-data-api
 
 ```mermaid
 flowchart TD
-    Root[Repo Root] --> API[MarketData.API]
-    Root --> APP[MarketData.Application]
-    Root --> DOM[MarketData.Domain]
-    Root --> INF[MarketData.Infrastructure]
-    Root --> DOCS[docs/]
+    Root["Repo Root"] --> API["MarketData.API"]
+    Root --> APP["MarketData.Application"]
+    Root --> DOM["MarketData.Domain"]
+    Root --> INF["MarketData.Infrastructure"]
+    Root --> DOCS["docs/"]
 
-    API --> Ctrls[Controllers]
-    API --> Program[Program.cs
-(DI & wiring)]
-    INF --> Proc[Processing
-(HighPerformanceMarketDataProcessorService)]
-    INF --> SimSvc[SimulatedMarketDataFeedHostedService]
-    INF --> Repos[Repositories
-(InMemoryStatistics,
-InMemoryAnomaly)]
-    INF --> Analytics[Analytics
-(MovingAverageBuffer,
-SlidingWindow)]
-    APP --> Commands[Commands & DTOs]
-    APP --> Queries[Queries & Handlers]
-    APP --> Interfaces[Interfaces]
-    DOM --> Entities[Entities
-(PriceUpdate,
-SymbolStatistics,
-PriceAnomaly)]
+    API --> Ctrls["Controllers"]
+    API --> ProgramNode["Program.cs (DI & wiring)"]
+
+    INF --> Proc["HighPerformanceMarketDataProcessorService"]
+    INF --> SimSvc["SimulatedMarketDataFeedHostedService"]
+    INF --> Repos["Repositories (InMemoryStatistics / InMemoryAnomaly)"]
+    INF --> Analyt["Analytics (MovingAverageBuffer / SlidingWindow)"]
+
+    APP --> CmdsNode["Commands & DTOs"]
+    APP --> QryNode["Queries & Handlers"]
+    APP --> IntfNode["Interfaces (IMarketDataProcessor, etc.)"]
+
+    DOM --> Entities["Entities (PriceUpdate, SymbolStatistics, PriceAnomaly)"]
 ```
 
-You can navigate by responsibility:
+Navigation tips:
 
-- Want ingestion logic? → `HighPerformanceMarketDataProcessorService`.
-- Want anomaly logic? → `SlidingWindow`, `PriceAnomaly`, `IAnomalyRepository`.
-- Want HTTP surface? → `MarketData.API/Controllers`.
-- Want design rationale? → `docs/ARCHITECTURE-COMBINED.md`, `docs/DESIGN_DECISIONS.md`.
+- **Ingestion logic** → `HighPerformanceMarketDataProcessorService`.
+- **Anomaly detection** → `SlidingWindow`, `PriceAnomaly`, `IAnomalyRepository`.
+- **HTTP endpoints** → `MarketData.API/Controllers`.
+- **Design rationale** → `docs/ARCHITECTURE-COMBINED.md`, `docs/DESIGN_DECISIONS.md`.
 
 ---
 
 ## 10. Testing & Quality
 
-The solution is structured for a layered testing strategy:
+The codebase is structured for a layered testing approach:
 
-- **Domain & Analytics (Unit tests)**:
-  - `SymbolStatistics`
-  - `MovingAverageBuffer`
-  - `SlidingWindow`
-- **Application (Unit tests)**:
-  - Command handlers (with mocks).
-  - Query handlers (with mocks).
-- **Infrastructure (Integration tests)**:
-  - `HighPerformanceMarketDataProcessorService` + repositories.
-- **API (Integration/E2E)**:
-  - Controllers via `WebApplicationFactory<T>`.
-- **Performance / Load**:
-  - Simulation feed + external tools (NBomber, K6, etc.).
+```mermaid
+graph TD
+    U["Unit Tests<br/>(Domain & Analytics)"] --> A["Application Tests<br/>(Handlers)"]
+    A --> I["Integration Tests<br/>(Processor + API)"]
+    I --> P["Performance / Load Tests"]
 
-See `docs/TESTING_STRATEGY.md` and `docs/PERFORMANCE.md` for details and diagrams.
+    style U fill:#e0ffe0,stroke:#00aa00,stroke-width:1px
+    style A fill:#e0f0ff,stroke:#0066cc,stroke-width:1px
+    style I fill:#fff4e0,stroke:#ff9900,stroke-width:1px
+    style P fill:#ffe0e0,stroke:#cc0000,stroke-width:1px
+```
+
+See:
+
+- `docs/TESTING_STRATEGY.md` – single place describing test types and scenarios.
+- `docs/PERFORMANCE.md` – performance goals, complexity, and load-testing ideas.
+- `docs/CODE_REVIEW.md` – structured self-review from a senior engineer’s perspective.
 
 ---
 
 ## 11. Security & Operations
 
-- **Security**:
-  - Currently no built-in auth (assumes internal or behind gateway).
-  - Input validation via model binding / validators.
-  - See `docs/SECURITY_TESTING.md` for:
-    - Threat model,
-    - Security test plan,
-    - Future enhancements (auth, rate limiting, logging).
-
+- **Security posture** (current sample):
+  - Intended primarily for internal/demo use.
+  - No built-in auth (assumes API gateway or internal network).
+  - Validation at request level to avoid obviously malformed data.
 - **Operations**:
-  - `GET /health` for liveness.
-  - `GET /api/metrics` for internal counters.
-  - Backpressure via bounded channels.
-  - See `docs/OPERATIONS_RUNBOOK.md` for:
-    - Incident playbooks,
-    - Scaling guidance,
-    - Config tuning tips.
+  - `GET /health` – liveness.
+  - `GET /api/metrics` – built-in counters for ticks, anomalies, queue size, etc.
+  - Bounded channels provide built-in backpressure.
+
+For more details:
+
+- `docs/SECURITY_TESTING.md` – threat model, security tests, future improvements.
+- `docs/OPERATIONS_RUNBOOK.md` – how to run, monitor, and troubleshoot under load.
 
 ---
 
 ## 12. Using This Project in an Interview
 
-Suggested flow:
+Suggested storytelling flow:
 
-1. Start with the **high-level architecture** diagram (section 2.1).
-2. Walk through **write path and read path** sequence diagrams.
+1. Start with the **High-Level View** diagram (section 2.1).
+2. Explain the **write path** and **read path** sequence diagrams (section 3).
 3. Dive into:
-   - **Partitioned channels** for concurrency.
-   - **MovingAverageBuffer** and **SlidingWindow** for O(1) analytics.
+   - Partitioned channels & workers (section 4.1).
+   - O(1) moving average and sliding window (sections 4 & docs).
 4. Discuss:
-   - **Backpressure strategy** (bounded channels, DropOldest).
-   - **Anomaly rule** (2% within 1s) and how the sliding window enforces it.
-5. Be explicit about:
-   - **Limitations** (in-memory state only, simple anomaly model, no persistence).
-   - **Future work** (persistence, sharding, ML-based anomalies, better security).
+   - How you handle **backpressure** with bounded channels.
+   - How you enforce the **2% within 1 second** anomaly rule.
+5. Be open about limitations:
+   - In-memory only.
+   - Simple anomaly model.
+   - No persistence yet.
 
-For deeper technical questions:
+Then point the interviewer to:
 
-- Use `docs/INTERVIEW_QA.md` (long-form Q&A).
-- Use `docs/LIMITATIONS_AND_FUTURE_WORK.md` (roadmap and honesty).
-- Use `docs/CODE_REVIEW.md` to show you can self-review and critique.
+- `docs/INTERVIEW_QA.md` – contains a long list of questions and answers you can practice.
+- `docs/LIMITATIONS_AND_FUTURE_WORK.md` – shows you know how to evolve the system.
+- `docs/CODE_REVIEW.md` – demonstrates that you can critique your own work like a senior.
 
 ---
 
 ## 13. Docs Overview
 
-The `docs/` folder contains **extensive, structured documentation**:
+The `docs/` folder contains a rich set of documentation:
 
 ```mermaid
 flowchart LR
-    D[docs/] --> Arch[ARCHITECTURE-COMBINED.md]
-    D --> QA[INTERVIEW_QA.md]
-    D --> ApiDoc[API.md]
-    D --> Design[DESIGN_DECISIONS.md]
-    D --> Perf[PERFORMANCE.md]
-    D --> Test[TESTING_STRATEGY.md]
-    D --> Runbook[OPERATIONS_RUNBOOK.md]
-    D --> Sim[SIMULATION_GUIDE.md]
-    D --> Limit[LIMITATIONS_AND_FUTURE_WORK.md]
-    D --> Gloss[GLOSSARY.md]
-    D --> CR[CODE_REVIEW.md]
-    D --> Sec[SECURITY_TESTING.md]
-    D --> Index[README_DOCS.md]
+    D["docs/"] --> Arch["ARCHITECTURE-COMBINED.md<br/>Architecture deep-dive"]
+    D --> QA["INTERVIEW_QA.md<br/>Interview-style Q&A"]
+    D --> ApiDoc["API.md<br/>HTTP API Reference"]
+    D --> Design["DESIGN_DECISIONS.md<br/>ADR-style decisions"]
+    D --> Perf["PERFORMANCE.md<br/>Performance & Scaling"]
+    D --> Test["TESTING_STRATEGY.md<br/>Testing plan"]
+    D --> Runbook["OPERATIONS_RUNBOOK.md<br/>Ops guide"]
+    D --> Sim["SIMULATION_GUIDE.md<br/>Simulation details"]
+    D --> Limit["LIMITATIONS_AND_FUTURE_WORK.md<br/>Roadmap"]
+    D --> Gloss["GLOSSARY.md<br/>Terminology"]
+    D --> CR["CODE_REVIEW.md<br/>Code review notes"]
+    D --> Sec["SECURITY_TESTING.md<br/>Security testing"]
+    D --> Index["README_DOCS.md<br/>Docs index"]
 ```
 
 ---
 
 ## 14. License
 
-(Adjust this section to match your actual choice.)
+(Adjust this section to whatever you prefer.)
 
-> This project is intended as a **learning and interview demonstration** repository.  
-> You are free to read, study, and adapt the approaches described here.
-# MarketDataSystem
+> This repository is intended as a **learning and interview demonstration** project.  
+> You are welcome to read, learn from, and adapt the ideas.
