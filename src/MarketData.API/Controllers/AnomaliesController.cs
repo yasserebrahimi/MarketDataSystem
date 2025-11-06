@@ -3,11 +3,13 @@ using System.Threading.Tasks;
 using MediatR;
 using MarketData.Application.Queries;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Authorization;
 
 namespace MarketData.API.Controllers
 {
     [ApiController]
     [Route("api/[controller]")]
+    [Authorize(Policy = "RequireReadAccess")]
     public sealed class AnomaliesController : ControllerBase
     {
         private readonly IMediator _mediator;

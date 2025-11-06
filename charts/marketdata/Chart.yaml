@@ -1,0 +1,26 @@
+apiVersion: v2
+name: marketdata
+description: A Helm chart for MarketData high-performance processing system
+type: application
+version: 1.0.0
+appVersion: "1.0.0"
+keywords:
+  - marketdata
+  - real-time
+  - financial
+  - trading
+home: https://github.com/yasserebrahimi/MarketDataSystem
+sources:
+  - https://github.com/yasserebrahimi/MarketDataSystem
+maintainers:
+  - name: Yasser Ebrahimi Fard
+    email: yasser.ebrahimi@outlook.com
+dependencies:
+  - name: postgresql
+    version: "12.x.x"
+    repository: https://charts.bitnami.com/bitnami
+    condition: postgresql.enabled
+  - name: redis
+    version: "18.x.x"
+    repository: https://charts.bitnami.com/bitnami
+    condition: redis.enabled

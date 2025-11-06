@@ -1,0 +1,73 @@
+name: Test
+
+on:
+  push:
+    branches: [ main, develop, claude/* ]
+  pull_request:
+    branches: [ main, develop ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: marketdata_test
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+      redis:
+        image: redis:7-alpine
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 6379:6379
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: '8.0.x'
+
+    - name: Restore dependencies
+      run: dotnet restore
+
+    - name: Run Unit Tests
+      run: dotnet test tests/MarketData.Tests.Unit --no-restore --verbosity normal --logger "trx;LogFileName=unit-test-results.trx" --collect:"XPlat Code Coverage" --settings coverlet.runsettings
+
+    - name: Run Integration Tests
+      run: dotnet test tests/MarketData.Tests.Integration --no-restore --verbosity normal --logger "trx;LogFileName=integration-test-results.trx" --collect:"XPlat Code Coverage" --settings coverlet.runsettings
+      env:
+        ConnectionStrings__DefaultConnection: "Host=localhost;Port=5432;Database=marketdata_test;Username=postgres;Password=postgres"
+        ConnectionStrings__Redis: "localhost:6379"
+
+    - name: Upload test results
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: test-results
+        path: |
+          **/TestResults/**/*.trx
+          **/TestResults/**/coverage.*.xml
+        retention-days: 7
+
+    - name: Upload coverage to Codecov
+      uses: codecov/codecov-action@v4
+      with:
+        files: '**/TestResults/**/coverage.opencover.xml'
+        flags: unittests
+        name: codecov-umbrella
+        fail_ci_if_error: false

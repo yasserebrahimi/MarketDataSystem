@@ -1,5 +1,6 @@
 using MediatR;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Authorization;
 using MarketData.Application.Commands;
 using MarketData.Application.Queries;
 
@@ -12,6 +13,7 @@ namespace MarketData.API.Controllers;
 [ApiController]
 [Route("api/[controller]")]
 [Produces("application/json")]
+[Authorize(Policy = "RequireReadAccess")]
 public class PricesController : ControllerBase
 {
     private readonly IMediator _mediator;
@@ -30,9 +32,12 @@ public class PricesController : ControllerBase
     /// <returns>Processing result</returns>
     /// <response code="200">Price update processed successfully</response>
     /// <response code="400">Invalid request</response>
+    /// <response code="401">Unauthorized - Write access required</response>
     [HttpPost]
+    [Authorize(Policy = "RequireWriteAccess")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<IActionResult> ProcessUpdate([FromBody] ProcessPriceUpdateCommand command)
     {
         _logger.LogInformation(

@@ -1,0 +1,27 @@
+# Example Terraform variables file
+# Copy this file to terraform.tfvars and fill in your values
+
+project_name = "marketdata"
+environment  = "dev"
+location     = "East US"
+
+# Kubernetes
+kubernetes_version = "1.28"
+node_count         = 3
+node_min_count     = 2
+node_max_count     = 10
+node_vm_size       = "Standard_D4s_v3"
+
+# PostgreSQL
+postgres_admin_username = "postgres"
+postgres_admin_password = "CHANGE_ME_SECURE_PASSWORD"
+postgres_storage_mb     = 32768
+postgres_sku_name       = "GP_Standard_D4s_v3"
+
+# Redis
+redis_capacity = 1
+redis_family   = "C"
+redis_sku_name = "Standard"
+
+# JWT
+jwt_secret_key = "CHANGE_THIS_TO_A_VERY_SECURE_SECRET_KEY_AT_LEAST_32_CHARACTERS"

@@ -1,0 +1,70 @@
+name: Deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to deploy to'
+        required: true
+        type: choice
+        options:
+          - staging
+          - production
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  deploy-staging:
+    if: github.event.inputs.environment == 'staging' || (startsWith(github.ref, 'refs/tags/') && contains(github.ref, '-beta'))
+    runs-on: ubuntu-latest
+    environment: staging
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Azure Login
+      uses: azure/login@v1
+      with:
+        creds: ${{ secrets.AZURE_CREDENTIALS_STAGING }}
+
+    - name: Deploy to AKS Staging
+      uses: azure/k8s-deploy@v4
+      with:
+        manifests: |
+          k8s/overlays/staging/
+        images: |
+          yasserebrahimi/marketdata:${{ github.sha }}
+        namespace: marketdata-staging
+
+  deploy-production:
+    if: github.event.inputs.environment == 'production' || (startsWith(github.ref, 'refs/tags/') && !contains(github.ref, '-beta'))
+    runs-on: ubuntu-latest
+    environment: production
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Azure Login
+      uses: azure/login@v1
+      with:
+        creds: ${{ secrets.AZURE_CREDENTIALS_PROD }}
+
+    - name: Deploy to AKS Production
+      uses: azure/k8s-deploy@v4
+      with:
+        manifests: |
+          k8s/overlays/production/
+        images: |
+          yasserebrahimi/marketdata:${{ github.sha }}
+        namespace: marketdata-production
+
+    - name: Create GitHub Release
+      uses: actions/create-release@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        tag_name: ${{ github.ref }}
+        release_name: Release ${{ github.ref }}
+        draft: false
+        prerelease: false
