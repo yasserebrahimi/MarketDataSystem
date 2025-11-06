@@ -1,0 +1,128 @@
+replicaCount: 3
+
+image:
+  repository: yasserebrahimi/marketdata
+  pullPolicy: IfNotPresent
+  tag: "latest"
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+podAnnotations:
+  prometheus.io/scrape: "true"
+  prometheus.io/port: "80"
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  fsGroup: 1000
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop:
+    - ALL
+
+service:
+  type: ClusterIP
+  port: 80
+  targetPort: 80
+
+ingress:
+  enabled: true
+  className: "nginx"
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+  hosts:
+    - host: marketdata.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - secretName: marketdata-tls
+      hosts:
+        - marketdata.example.com
+
+resources:
+  limits:
+    cpu: 1000m
+    memory: 2Gi
+  requests:
+    cpu: 250m
+    memory: 512Mi
+
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 70
+  targetMemoryUtilizationPercentage: 80
+
+nodeSelector: {}
+
+tolerations: []
+
+affinity:
+  podAntiAffinity:
+    preferredDuringSchedulingIgnoredDuringExecution:
+      - weight: 100
+        podAffinityTerm:
+          labelSelector:
+            matchExpressions:
+              - key: app.kubernetes.io/name
+                operator: In
+                values:
+                  - marketdata
+          topologyKey: kubernetes.io/hostname
+
+config:
+  aspnetcoreEnvironment: Production
+  jwtIssuer: "MarketDataAPI"
+  jwtAudience: "MarketDataClients"
+  corsAllowedOrigins: "https://marketdata.example.com"
+  enableSimulation: false
+  enablePersistentStorage: true
+  enableRateLimiting: true
+
+secrets:
+  jwtSecretKey: "CHANGE_THIS_SECRET_KEY"
+  dbConnectionString: ""
+  redisConnectionString: ""
+
+postgresql:
+  enabled: true
+  auth:
+    username: postgres
+    password: postgres
+    database: marketdata
+  primary:
+    persistence:
+      enabled: true
+      size: 10Gi
+
+redis:
+  enabled: true
+  auth:
+    enabled: false
+  master:
+    persistence:
+      enabled: true
+      size: 2Gi
+
+healthCheck:
+  liveness:
+    path: /health
+    initialDelaySeconds: 30
+    periodSeconds: 10
+  readiness:
+    path: /health/ready
+    initialDelaySeconds: 10
+    periodSeconds: 5

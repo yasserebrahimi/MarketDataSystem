@@ -2,11 +2,13 @@ using System.Threading;
 using System.Threading.Tasks;
 using MarketData.Application.Interfaces;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Authorization;
 
 namespace MarketData.API.Controllers
 {
     [ApiController]
     [Route("api/[controller]")]
+    [Authorize(Policy = "RequireReadAccess")]
     public sealed class MetricsController : ControllerBase
     {
         private readonly IMarketDataProcessor _processor;

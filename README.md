@@ -1,15 +1,18 @@
 # MarketDataSystem – Real-Time Market Data Processing Platform
 
-> **Goal**: Demonstrate senior-level skills in **system design, high-throughput processing, concurrency, observability, and clean architecture** using .NET.
+> **Goal**: Demonstrate senior-level skills in **system design, high-throughput processing, concurrency, observability, security, and clean architecture** using .NET.
 
 This repository implements a **real-time market data processing engine** that:
 
 - Consumes **high-frequency price updates** (ticks) for multiple symbols,
 - Maintains **per-symbol moving averages**,
 - Detects **price anomalies (>2% within any 1-second interval)**,
+- **Persists aggregated statistics and anomalies to PostgreSQL via EF Core** when persistence is enabled (or uses in-memory repositories for pure demo mode),
+- Can optionally use **Redis** for distributed caching,
+- **Secures read/write APIs with JWT-based authentication and role-based authorization**,
 - Exposes state and metrics via a **clear HTTP API**,
 - Includes a built-in **simulation feed** for demos and load testing,
-- Is supported by an extensive `docs/` folder for architecture, design, testing, and security.
+- Is supported by an extensive `docs/` folder for architecture, design, testing, security, and configuration.
 
 ---
 
@@ -46,13 +49,15 @@ The MarketDataSystem is meant to be a **realistic but compact** example of a str
 - It highlights trade-offs around **latency, throughput, and data structures**,
 - It is structured to be **easy to reason about** and **easy to explain**.
 
-**Key requirements covered:**
+**Key capabilities covered:**
 
 - Simulate a **market data feed** with random price updates for multiple symbols.
 - Maintain a **moving average of the latest N price updates** per symbol.
 - Detect **price spikes greater than 2%** within any **1-second window**.
 - Process **10,000+ price updates per second** (throughput target).
 - Use **concurrent programming** (channels, tasks, async/await) safely.
+- Protect the API surface with **JWT-based auth** and simple role-based policies.
+- Persist statistics and anomalies to **PostgreSQL** when required, or run purely in-memory for demos/tests.
 
 ---
 
@@ -82,14 +87,18 @@ GetRecentAnomalies)"]
         Intf["Interfaces
 IMarketDataProcessor,
 IStatisticsRepository,
-IAnomalyRepository"]
+IAnomalyRepository,
+IUserRepository"]
     end
 
     subgraph INF["Infrastructure Layer"]
         Proc["HighPerformanceMarketDataProcessorService"]
-        StatsRepo["InMemoryStatisticsRepository"]
-        AnomRepo["InMemoryAnomalyRepository"]
+        StatsRepo["Statistics Repositories
+(InMemory + EF Core)"]
+        AnomRepo["Anomaly Repositories
+(InMemory + EF Core)"]
         Sim["SimulatedMarketDataFeedHostedService"]
+        Auth["AuthenticationService / JwtTokenService"]
         Opts["MarketDataProcessingOptions"]
         Analyt["Analytics
 (MovingAverageBuffer,
@@ -100,6 +109,7 @@ SlidingWindow)"]
         PU["PriceUpdate"]
         SS["SymbolStatistics"]
         PA["PriceAnomaly"]
+        User["User"]
     end
 
     Clients -->|HTTP| API
@@ -118,16 +128,18 @@ SlidingWindow)"]
     Sim --> Proc
     Opts --> Proc
     Opts --> Sim
+
+    Intf --> User
 ```
 
 ### 2.2 Layered Design
 
 **Projects:**
 
-- `MarketData.API` – HTTP endpoints, DI configuration, health checks.
+- `MarketData.API` – HTTP endpoints, DI configuration, health checks, JWT auth wiring.
 - `MarketData.Application` – Commands, queries, DTOs, interfaces.
-- `MarketData.Domain` – Core business entities (prices, stats, anomalies).
-- `MarketData.Infrastructure` – Processor engine, repositories, simulation, analytics.
+- `MarketData.Domain` – Core business entities (prices, stats, anomalies, users).
+- `MarketData.Infrastructure` – Processor engine, repositories (in-memory + EF Core), simulation, analytics, authentication/JWT.
 
 ```mermaid
 graph TD
@@ -142,17 +154,19 @@ Infrastructure depends on Domain and Application; the API depends on Application
 
 ### 2.3 Component Responsibilities
 
-| Component                               | Responsibility                                                 |
-|-----------------------------------------|----------------------------------------------------------------|
-| `HighPerformanceMarketDataProcessorService` | Real-time ingestion and processing of price updates.           |
-| `SimulatedMarketDataFeedHostedService` | Generate random-walk prices for multiple symbols.              |
-| `MovingAverageBuffer`                  | O(1) moving average over last N prices.                        |
-| `SlidingWindow` + `MonotonicDeque`     | O(1) amortized min/max over 1-second window.                   |
-| `SymbolStatistics`                     | Aggregated state per symbol (current, MA, count, min, max).    |
-| `PriceAnomaly`                         | Represents a detected spike (> threshold within window).       |
-| `InMemoryStatisticsRepository`         | Read model for current symbol statistics.                      |
-| `InMemoryAnomalyRepository`            | Stores recent anomalies in a bounded queue.                    |
-| Commands & Queries (Application)       | Orchestrate use-cases and input/output DTO mapping.            |
+| Component                                    | Responsibility                                                 |
+|----------------------------------------------|----------------------------------------------------------------|
+| `HighPerformanceMarketDataProcessorService`  | Real-time ingestion and processing of price updates.           |
+| `SimulatedMarketDataFeedHostedService`       | Generate random-walk prices for multiple symbols.              |
+| `MovingAverageBuffer`                       | O(1) moving average over last N prices.                        |
+| `SlidingWindow` + `MonotonicDeque`          | O(1) amortized min/max over 1-second window.                   |
+| `SymbolStatistics`                          | Aggregated state per symbol (current, MA, count, min, max).    |
+| `PriceAnomaly`                              | Represents a detected spike (> threshold within window).       |
+| `InMemoryStatisticsRepository` / EF version | Read model for current symbol statistics.                      |
+| `InMemoryAnomalyRepository` / EF version    | Stores recent anomalies (in memory or PostgreSQL).             |
+| `AuthenticationService` + `JwtTokenService` | Login/register, token issuing, refresh, password changes.      |
+| `UserRepository`                            | User persistence (PostgreSQL).                                 |
+| Commands & Queries (Application)            | Orchestrate use-cases and input/output DTO mapping.            |
 
 ---
 
@@ -173,6 +187,7 @@ sequenceDiagram
     participant Worker as "PartitionWorker"
 
     Client->>API: POST /api/prices (symbol, price, timestamp)
++ Bearer token
     API->>Med: Send(ProcessPriceUpdateCommand)
     Med->>CmdH: Handle(command)
     CmdH->>Proc: EnqueueUpdateAsync(priceUpdate)
@@ -199,6 +214,7 @@ sequenceDiagram
     participant Proc as "Processor"
 
     Client->>API: GET /api/prices/{symbol}
++ Bearer token
     API->>Med: Send(GetSymbolStatisticsQuery)
     Med->>QryH: Handle(query)
     QryH->>StatsRepo: GetBySymbolAsync(symbol)
@@ -349,32 +365,51 @@ Configuration snippet:
 
 ## 6. HTTP API Summary
 
-For full details and examples, see `docs/API.md`. Quick overview:
+For full details and examples, see `docs/API.md`.
 
-| Method | Path                      | Description                                      |
-|--------|---------------------------|--------------------------------------------------|
-| POST   | `/api/prices`             | Enqueue a new price update.                     |
-| GET    | `/api/prices/{symbol}`    | Read stats for one symbol.                      |
-| GET    | `/api/prices`             | Read stats for all symbols.                     |
-| GET    | `/api/anomalies`          | Read recent anomalies (optional filter by symbol). |
-| GET    | `/api/metrics`            | See processing counters and internal metrics.   |
-| GET    | `/health`                 | Simple health probe (liveness).                 |
+### 6.1 Market Data Endpoints
+
+| Method | Path                      | Description                                         |
+|--------|---------------------------|-----------------------------------------------------|
+| POST   | `/api/prices`             | Enqueue a new price update. **Requires auth.**     |
+| GET    | `/api/prices/{symbol}`    | Read stats for one symbol. **Requires auth.**      |
+| GET    | `/api/prices`             | Read stats for all symbols. **Requires auth.**     |
+| GET    | `/api/anomalies`          | Read recent anomalies (optional symbol filter). **Requires auth.** |
+| GET    | `/api/metrics`            | See processing counters and internal metrics. **Requires auth.** |
+| GET    | `/health`                 | Simple health probe (liveness).                    |
+
+### 6.2 Authentication Endpoints (JWT)
+
+| Method | Path                     | Description                                  | Auth      |
+|--------|--------------------------|----------------------------------------------|-----------|
+| POST   | `/api/auth/login`       | Login with username/password, get tokens.    | Anonymous |
+| POST   | `/api/auth/register`    | Register new user + login.                   | Anonymous |
+| POST   | `/api/auth/refresh`     | Refresh access token using refresh token.    | Anonymous (with valid refresh token) |
+| POST   | `/api/auth/logout`      | Logout current user / invalidate session.    | JWT       |
+| GET    | `/api/auth/me`          | Get current user profile.                    | JWT       |
+| POST   | `/api/auth/change-password` | Change current user's password.           | JWT       |
+
+All protected endpoints require:
+
+```http
+Authorization: Bearer <access_token>
+```
 
 ---
 
 ## 7. Configuration
 
-The core options live under `MarketDataProcessing`:
+High-level configuration lives in `appsettings*.json`. The most important sections are:
 
-- `Partitions`
-- `ChannelCapacity`
-- `MovingAverageWindow`
-- `AnomalyThresholdPercent`
-- `SlidingWindowMilliseconds`
-- `RecentAnomaliesCapacity`
-- `Simulation` (nested object)
+- `ConnectionStrings` – PostgreSQL + Redis,
+- `JwtSettings` – secret, issuer/audience, access/refresh expirations,
+- `MarketDataProcessing` – partitions, channel capacity, anomaly thresholds, simulation,
+- `Serilog` – logging,
+- `Cors` – allowed origins.
 
-Example snippet:
+For a detailed explanation of each section, see `docs/CONFIGURATION.md`.
+
+The core processing options live under `MarketDataProcessing`:
 
 ```json
 "MarketDataProcessing": {
@@ -415,8 +450,9 @@ dotnet run
 Then:
 
 - Hit `GET /health` to confirm it is up.
-- Use `POST /api/prices` to inject custom data.
-- Or rely on the simulation feed (if enabled).
+- Use `POST /api/auth/register` + `POST /api/auth/login` to obtain a JWT.
+- Call the protected endpoints with `Authorization: Bearer <token>`.
+- Or rely on the simulation feed (if enabled) for automatic ticks.
 
 ### 8.2 Docker (Example)
 
@@ -426,6 +462,13 @@ If a Dockerfile is present (or added):
 docker build -t market-data-api .
 docker run -p 8080:8080 market-data-api
 ```
+
+In a more complete setup, you would typically run:
+
+- API container,
+- PostgreSQL,
+- Redis,
+- Optional Prometheus/Grafana.
 
 ---
 
@@ -439,15 +482,19 @@ flowchart TD
     Root --> INF["MarketData.Infrastructure"]
     Root --> DOCS["docs/"]
 
-    API --> Ctrls["Controllers"]
-    API --> Program["Program.cs (DI & wiring)"]
+    API --> Ctrls["Controllers
+(Prices, Anomalies, Auth, Metrics)"]
+    API --> Program["Program.cs (DI, Auth, Wiring)"]
 
     INF --> ProcNode["Processing
 (HighPerformanceMarketDataProcessorService)"]
     INF --> SimSvc["SimulatedMarketDataFeedHostedService"]
     INF --> Repos["Repositories
-(InMemoryStatistics,
-InMemoryAnomaly)"]
+(InMemory + EF Core)"]
+    INF --> AuthInfra["Authentication & JWT
+(AuthenticationService,
+JwtTokenService,
+UserRepository)"]
     INF --> Analytics["Analytics
 (MovingAverageBuffer,
 SlidingWindow)"]
@@ -459,7 +506,8 @@ SlidingWindow)"]
     DOM --> Entities["Entities
 (PriceUpdate,
 SymbolStatistics,
-PriceAnomaly)"]
+PriceAnomaly,
+User)"]
 ```
 
 You can navigate by responsibility:
@@ -467,7 +515,8 @@ You can navigate by responsibility:
 - Want ingestion logic? → `HighPerformanceMarketDataProcessorService`.
 - Want anomaly logic? → `SlidingWindow`, `PriceAnomaly`, `IAnomalyRepository`.
 - Want HTTP surface? → `MarketData.API/Controllers`.
-- Want design rationale? → `docs/ARCHITECTURE-COMBINED.md`, `docs/DESIGN_DECISIONS.md`.
+- Want auth details? → `AuthController`, `AuthenticationService`, `JwtTokenService`, `User`, `UserRepository`.
+- Want design rationale? → `docs/ARCHITECTURE*.md`, `docs/DESIGN_DECISIONS.md`.
 
 ---
 
@@ -478,10 +527,10 @@ The solution is structured for a layered testing strategy:
 ```mermaid
 graph TD
     U["Unit Tests
-(Domain, Analytics)"] --> A["Application Tests
-(Handlers)"]
+(Domain, Analytics, Auth)"] --> A["Application Tests
+(Handlers, Services)"]
     A --> I["Integration Tests
-(Processor + API)"]
+(API + DbContext)"]
     I --> P["Performance / Load Tests"]
 
     style U fill:#e0ffe0,stroke:#00aa00,stroke-width:1px
@@ -490,28 +539,31 @@ graph TD
     style P fill:#ffe0e0,stroke:#cc0000,stroke-width:1px
 ```
 
-For more details:
+Summary of what is implemented (see `docs/TESTING_STRATEGY.md` for details):
 
-- `docs/TESTING_STRATEGY.md`
-- `docs/PERFORMANCE.md`
-- `docs/CODE_REVIEW.md` (self-review from a senior perspective)
+- **~30 unit tests** for domain, analytics, and auth helpers.
+- **10 integration tests** using `WebApplicationFactory` and an in-memory test DbContext.
+- Ready to extend with k6 / load tests if needed.
 
 ---
 
 ## 11. Security & Operations
 
 - **Security**:
-  - Currently no built-in auth (assumes internal or behind gateway).
+  - Built-in **JWT Bearer** authentication (access + refresh tokens).
+  - **Role- and policy-based authorization** (`Admin`, `User`; `RequireReadAccess`, `RequireWriteAccess`, etc.).
+  - Passwords are hashed using **BCrypt** before being stored in PostgreSQL.
   - Input validation via model binding / validators.
-  - See `docs/SECURITY_TESTING.md` for:
+  - See `docs/AUTHENTICATION.md` and `docs/SECURITY_TESTING.md` for:
+    - Auth design and flows,
     - Threat model,
-    - Security test plan,
-    - Future enhancements (auth, rate limiting, security logging).
+    - Security test plan and future enhancements.
 
 - **Operations**:
   - `GET /health` for liveness.
   - `GET /api/metrics` for internal counters.
   - Backpressure via bounded channels.
+  - Optional Postgres/Redis health checks.
   - See `docs/OPERATIONS_RUNBOOK.md` for:
     - Incident playbooks,
     - Scaling guidance,
@@ -531,9 +583,11 @@ Suggested flow:
 4. Discuss:
    - **Backpressure strategy** (bounded channels, `DropOldest`).
    - **Anomaly rule** (2% within 1s) and how the sliding window enforces it.
+   - **Persistence** model (EF Core/PostgreSQL vs in-memory for demos).
+   - **Auth design** (JWT, roles, policies, refresh tokens).
 5. Be explicit about:
-   - **Limitations** (in-memory state only, simple anomaly model, no persistence yet).
-   - **Future work** (persistence, sharding, ML-based anomalies, better security).
+   - **Limitations** (single-node processor, simple anomaly model, basic roles).
+   - **Future work** (message queues, sharding, ML-based anomalies, stronger security).
 
 For deeper technical questions:
 
@@ -550,6 +604,8 @@ The `docs/` folder contains **extensive, structured documentation**:
 ```mermaid
 flowchart LR
     D["docs/"] --> Arch["ARCHITECTURE-COMBINED.md"]
+    D --> AuthDoc["AUTHENTICATION.md"]
+    D --> ConfigDoc["CONFIGURATION.md"]
     D --> QA["INTERVIEW_QA.md"]
     D --> ApiDoc["API.md"]
     D --> Design["DESIGN_DECISIONS.md"]
@@ -563,6 +619,15 @@ flowchart LR
     D --> SecDoc["SECURITY_TESTING.md"]
     D --> Index["README_DOCS.md"]
 ```
+
+This README is the **entry point**, and the docs folder holds:
+
+- Architecture and design rationale,
+- API reference,
+- Testing and performance strategy,
+- Security and operations runbook,
+- Authentication and configuration details,
+- Interview-focused Q&A and code review notes.
 
 ---
 

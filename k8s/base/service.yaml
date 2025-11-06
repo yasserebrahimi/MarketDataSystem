@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: marketdata-api
+  labels:
+    app: marketdata
+    component: api
+spec:
+  type: ClusterIP
+  ports:
+  - port: 80
+    targetPort: http
+    protocol: TCP
+    name: http
+  selector:
+    app: marketdata
+    component: api
