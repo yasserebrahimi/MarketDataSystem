@@ -1,4 +1,4 @@
-# MarketDataSystem – Real-Time Market Data Processing Platform (Ultra-Documented Edition)
+# MarketDataSystem – Real-Time Market Data Processing Platform
 
 > **Goal**: Demonstrate senior-level skills in **system design, high-throughput processing, concurrency, observability, and clean architecture** using .NET.
 
@@ -567,8 +567,6 @@ flowchart LR
 ---
 
 ## 14. License
-
-(Adjust this section to match your actual choice.)
 
 > This project is intended as a **learning and interview demonstration** repository.  
 > You are free to read, study, and adapt the approaches described here.

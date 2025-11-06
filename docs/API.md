@@ -28,16 +28,16 @@ The API follows a **CQRS-style** approach:
 
 ```mermaid
 flowchart TB
-    subgraph Write[Write-side]
-        P[POST /api/prices]
+    subgraph WriteSide
+        WPost["POST /api/prices"]
     end
 
-    subgraph Read[Read-side]
-        G1[GET /api/prices/{symbol}]
-        G2[GET /api/prices]
-        G3[GET /api/anomalies]
-        G4[GET /api/metrics]
-        H[GET /health]
+    subgraph ReadSide
+        R1["GET /api/prices/{symbol}"]
+        R2["GET /api/prices"]
+        R3["GET /api/anomalies"]
+        R4["GET /api/metrics"]
+        R5["GET /health"]
     end
 ```
 
@@ -66,19 +66,17 @@ Enqueues a new **price update** for a symbol into the real-time processing pipel
 - `timestamp` (ISO-8601, optional):
   - If omitted, server may use current UTC time.
 
-### Example Request
+### 2.1 Example Request
 
 ```bash
-curl -X POST https://localhost:5001/api/prices \
-  -H "Content-Type: application/json" \
-  -d '{
+curl -X POST https://localhost:5001/api/prices   -H "Content-Type: application/json"   -d '{
     "symbol": "EURUSD",
     "price": 1.0853,
     "timestamp": "2025-11-06T10:00:00Z"
   }'
 ```
 
-### Example Response
+### 2.2 Example Response
 
 ```json
 {
@@ -110,7 +108,7 @@ Example:
 curl https://localhost:5001/api/prices/EURUSD
 ```
 
-### Example Response
+### 3.1 Example Response
 
 ```json
 {
@@ -126,23 +124,15 @@ curl https://localhost:5001/api/prices/EURUSD
 
 Fields:
 
-| Field          | Type    | Description                                       |
-|----------------|---------|---------------------------------------------------|
-| `symbol`       | string  | Symbol key (e.g., `EURUSD`, `AAPL`).             |
-| `currentPrice` | number  | Latest observed price.                            |
-| `movingAverage`| number  | Moving average over last N ticks.                 |
-| `updateCount`  | number  | How many ticks have been processed for this symbol. |
-| `lastUpdateTime` | string| Timestamp of the last update.                    |
-| `minPrice`     | number  | Minimum observed price (across lifetime).         |
-| `maxPrice`     | number  | Maximum observed price (across lifetime).         |
-
-Possible responses:
-
-| Code | Meaning                                               |
-|------|-------------------------------------------------------|
-| 200  | Statistics found and returned                         |
-| 404  | Symbol has no data yet                                |
-| 500  | Internal server error                                 |
+| Field            | Type    | Description                                          |
+|------------------|---------|------------------------------------------------------|
+| `symbol`         | string  | Symbol key (e.g., `EURUSD`, `AAPL`).                |
+| `currentPrice`   | number  | Latest observed price.                               |
+| `movingAverage`  | number  | Moving average over last N ticks.                    |
+| `updateCount`    | number  | How many ticks have been processed for this symbol.  |
+| `lastUpdateTime` | string  | Timestamp of the last update.                        |
+| `minPrice`       | number  | Minimum observed price (across lifetime).            |
+| `maxPrice`       | number  | Maximum observed price (across lifetime).            |
 
 ---
 
@@ -159,7 +149,7 @@ Example:
 curl https://localhost:5001/api/prices
 ```
 
-### Example Response
+Example response (truncated):
 
 ```json
 [
@@ -184,8 +174,6 @@ curl https://localhost:5001/api/prices
 ]
 ```
 
-This endpoint is useful for dashboards that want to show a **summary table** of all symbols.
-
 ---
 
 ## 5. GET /api/anomalies
@@ -196,30 +184,15 @@ Returns **recent anomalies** (price spikes) detected by the system.
 - **URL**: `/api/anomalies`
 - **Query parameters**:
 
-| Name   | Type   | Required | Default | Description                                             |
-|--------|--------|----------|---------|---------------------------------------------------------|
-| symbol | string | no       | null    | If provided, filter anomalies for this symbol only.     |
-| take   | int    | no       | 100     | Max number of anomalies to return (newest first).       |
+| Name   | Type   | Required | Default | Description                             |
+|--------|--------|----------|---------|-----------------------------------------|
+| symbol | string | no       | null    | If provided, filter to that symbol only |
+| take   | int    | no       | 100     | Max number of anomalies                 |
 
 Example:
 
 ```bash
 curl "https://localhost:5001/api/anomalies?symbol=EURUSD&take=20"
-```
-
-### Example Response
-
-```json
-[
-  {
-    "symbol": "EURUSD",
-    "referencePrice": 1.0800,
-    "newPrice": 1.1020,
-    "changePercent": 2.0370,
-    "timestamp": "2025-11-06T10:00:01.0000000Z",
-    "direction": "Up"
-  }
-]
 ```
 
 ---
@@ -237,7 +210,7 @@ Example:
 curl https://localhost:5001/api/metrics
 ```
 
-Example response shape (pseudo):
+Example shape (implementation-specific):
 
 ```json
 {
@@ -249,8 +222,6 @@ Example response shape (pseudo):
 }
 ```
 
-(Field names may vary slightly depending on the exact DTO in code.)
-
 ---
 
 ## 7. GET /health
@@ -261,71 +232,25 @@ Liveness/health probe.
 - **URL**: `/health`
 - **Response**: HTTP 200 when the service is running.
 
-This endpoint is typically used by:
-
-- Kubernetes liveness/readiness probes,
-- Load balancers,
-- Monitoring systems.
+Used by Kubernetes, load balancers, and monitoring systems.
 
 ---
 
-## 8. End-to-End Sequence Diagram
-
-The following Mermaid diagram shows **write + read** flow for one symbol:
-
-```mermaid
-sequenceDiagram
-    autonumber
-    participant Client
-    participant API as PricesController
-    participant Med as MediatR
-    participant CmdHandler as ProcessPriceUpdateHandler
-    participant Processor as HighPerformanceMarketDataProcessorService
-    participant Worker as PartitionWorker
-    participant Repo as InMemoryStatisticsRepository
-
-    Client->>API: POST /api/prices (symbol, price, timestamp)
-    API->>Med: Send(ProcessPriceUpdateCommand)
-    Med->>CmdHandler: Handle(command)
-    CmdHandler->>Processor: EnqueueUpdateAsync(PriceUpdate)
-    Processor->>Worker: Write into Channel(partition)
-    Worker->>Worker: Update MovingAverage & SlidingWindow
-    Worker->>Worker: Detect anomaly (if any)
-    Worker->>Worker: Update SymbolStatistics
-
-    Note over Client,API: Later...
-    Client->>API: GET /api/prices/{symbol}
-    API->>Med: Send(GetSymbolStatisticsQuery)
-    Med->>Repo: GetBySymbolAsync(symbol)
-    Repo->>Processor: TryGetSymbolStatistics(symbol)
-    Processor-->>Repo: SymbolStatistics snapshot
-    Repo-->>Med: SymbolStatistics
-    Med-->>API: SymbolStatisticsDto
-    API-->>Client: 200 OK (JSON)
-```
-
-
----
-
-## 9. Error Handling Flow (Diagram)
+## 8. Error Handling Flow
 
 ```mermaid
 flowchart TD
-    Client --> API[ASP.NET Core Controller]
-    API --> VAL[FluentValidation / ModelState]
+    Client["Client"] --> API["API Controller"]
+    API --> VAL["Validation"]
+    VAL -->|Invalid| ERR400["400 Bad Request"]
+    VAL -->|Valid| MED["MediatR"]
+    MED --> HND["Handler"]
+    HND --> DEP["Processor / Repository"]
 
-    VAL -->|Invalid| ERR400[400 Bad Request\nValidation errors]
-    VAL -->|Valid| MED[MediatR]
-
-    MED --> HND[Command/Query Handler]
-    HND --> DEP[IMarketDataProcessor / Repositories]
-
-    DEP -->|Exception| ERR500[500 Internal Server Error]
-    DEP -->|Success| OK200[200 OK]
+    DEP -->|Success| OK["200 OK"]
+    DEP -->|Failure| ERR500["500 Internal Server Error"]
 
     ERR400 --> Client
     ERR500 --> Client
-    OK200 --> Client
+    OK --> Client
 ```
-
-This diagram shows the **happy path** vs. validation and unexpected failures.
