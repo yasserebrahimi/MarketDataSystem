@@ -187,7 +187,6 @@ sequenceDiagram
     participant Worker as "PartitionWorker"
 
     Client->>API: POST /api/prices (symbol, price, timestamp)
-Authorization: Bearer <token>
     API->>Med: Send(ProcessPriceUpdateCommand)
     Med->>CmdH: Handle(command)
     CmdH->>Proc: EnqueueUpdateAsync(priceUpdate)
@@ -214,7 +213,6 @@ sequenceDiagram
     participant Proc as "Processor"
 
     Client->>API: GET /api/prices/{symbol}
-Authorization: Bearer <token>
     API->>Med: Send(GetSymbolStatisticsQuery)
     Med->>QryH: Handle(query)
     QryH->>StatsRepo: GetBySymbolAsync(symbol)
