@@ -1,0 +1,64 @@
+version: '3.8'
+
+services:
+  api:
+    build:
+      context: .
+      dockerfile: src/MarketData.API/Dockerfile
+    ports:
+      - "5000:80"
+      - "5001:443"
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - ConnectionStrings__DefaultConnection=Host=postgres;Database=marketdata;Username=postgres;Password=postgres
+      - Redis__ConnectionString=redis:6379
+    depends_on:
+      - postgres
+      - redis
+    networks:
+      - market-data-network
+
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      - POSTGRES_DB=marketdata
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    networks:
+      - market-data-network
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    networks:
+      - market-data-network
+
+  prometheus:
+    image: prom/prometheus:latest
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+    networks:
+      - market-data-network
+
+  grafana:
+    image: grafana/grafana:latest
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    networks:
+      - market-data-network
+
+volumes:
+  postgres-data:
+
+networks:
+  market-data-network:
+    driver: bridge
