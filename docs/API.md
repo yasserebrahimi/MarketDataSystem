@@ -11,7 +11,7 @@ All examples assume a base URL similar to:
 
 ---
 
-## 📋 Table of Contents
+##  Table of Contents
 
 - [Overview](#overview)
 - [Authentication](#authentication)

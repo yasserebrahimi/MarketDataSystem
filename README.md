@@ -158,7 +158,7 @@ Infrastructure depends on Domain and Application; the API depends on Application
 |----------------------------------------------|----------------------------------------------------------------|
 | `HighPerformanceMarketDataProcessorService`  | Real-time ingestion and processing of price updates.           |
 | `SimulatedMarketDataFeedHostedService`       | Generate random-walk prices for multiple symbols.              |
-| `MovingAverageBuffer`                       | O(1) moving average over last N prices.                        |
+| `MovingAverageBuffer`                        | O(1) moving average over last N prices.                        |
 | `SlidingWindow` + `MonotonicDeque`          | O(1) amortized min/max over 1-second window.                   |
 | `SymbolStatistics`                          | Aggregated state per symbol (current, MA, count, min, max).    |
 | `PriceAnomaly`                              | Represents a detected spike (> threshold within window).       |
@@ -187,7 +187,7 @@ sequenceDiagram
     participant Worker as "PartitionWorker"
 
     Client->>API: POST /api/prices (symbol, price, timestamp)
-+ Bearer token
+Authorization: Bearer <token>
     API->>Med: Send(ProcessPriceUpdateCommand)
     Med->>CmdH: Handle(command)
     CmdH->>Proc: EnqueueUpdateAsync(priceUpdate)
@@ -214,7 +214,7 @@ sequenceDiagram
     participant Proc as "Processor"
 
     Client->>API: GET /api/prices/{symbol}
-+ Bearer token
+Authorization: Bearer <token>
     API->>Med: Send(GetSymbolStatisticsQuery)
     Med->>QryH: Handle(query)
     QryH->>StatsRepo: GetBySymbolAsync(symbol)

@@ -4,7 +4,7 @@ This document describes the authentication and authorization system in MarketDat
 
 ---
 
-## 📋 Table of Contents
+## Table of Contents
 
 - [Overview](#overview)
 - [JWT Authentication](#jwt-authentication)
@@ -507,7 +507,7 @@ After running database migrations:
 | admin | Admin@123 | Admin |
 | demo | Demo@123 | User |
 
-**⚠️ IMPORTANT**: Change these passwords in production!
+** IMPORTANT**: Change these passwords in production!
 
 ---
 
